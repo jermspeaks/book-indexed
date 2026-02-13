@@ -35,22 +35,23 @@ Raw TOC text:
 
 
 def _call_gemini(prompt: str, max_tokens: int = 16000) -> str:
-    """Call Gemini API and return generated text."""
+    """Call Gemini API (Google GenAI SDK) and return generated text."""
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError:
         raise ImportError(
-            "google-generativeai package required for Gemini. pip install google-generativeai"
+            "google-genai package required for Gemini. pip install google-genai"
         )
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment or .env")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    generation_config = genai.types.GenerationConfig(max_output_tokens=max_tokens)
-    response = model.generate_content(prompt, generation_config=generation_config)
-    if not response.candidates:
-        return ""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(max_output_tokens=max_tokens),
+    )
     return (response.text or "").strip()
 
 
