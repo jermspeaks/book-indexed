@@ -5,6 +5,16 @@ from pathlib import Path
 from typing import Any
 
 
+def _display_label(term: str, subentry: str) -> str:
+    """Format index label: 'Subentry term' when subentry present (title-cased), else term."""
+    if not subentry:
+        return term
+    sub = subentry.strip()
+    if sub:
+        sub = sub[0].upper() + sub[1:]
+    return f"{sub} {term}".strip()
+
+
 def export_markdown(
     book_title: str,
     grouped: list[dict[str, Any]],
@@ -52,10 +62,8 @@ def export_markdown(
                 term = e.get("term", "")
                 subentry = e.get("subentry", "")
                 page = e.get("page", "")
-                if subentry:
-                    lines.append(f"- **{term}** ({subentry}) — p. {page}")
-                else:
-                    lines.append(f"- **{term}** — p. {page}")
+                label = _display_label(term, subentry)
+                lines.append(f"- **{label}** — p. {page}")
             lines.append("")
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
