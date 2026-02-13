@@ -11,8 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 INDEX_STRUCTURE_PROMPT = """You will receive raw text from a book index. Convert it into a JSON list of objects.
-Each object must have: "term" (string), "subentry" (string, optional, use "" if none), and "pages" (list of integers).
-For page ranges like "120-125" or "120–125", include only the first number in the list (e.g. 120).
+Each object must have: "term" (string), "subentry" (string, optional, use "" if none), and "pages" (list of page ranges).
+For "pages", preserve ranges from the index. Each element is an object with "start" and "end" (inclusive).
+- For a range like "120-125" or "120–125", use {"start": 120, "end": 125}.
+- For a single page like "130", use {"start": 130, "end": 130}.
+Example: "120-125, 130" becomes "pages": [{"start": 120, "end": 125}, {"start": 130, "end": 130}].
 Roman numerals (ix, xi, xii) should be converted to integers (9, 11, 12).
 Skip "see also" and "see" cross-reference lines that have no page numbers.
 Return only valid JSON, no markdown or explanation.
@@ -119,9 +122,37 @@ def _extract_json_from_response(text: str) -> list[dict[str, Any]]:
     return []
 
 
+def _normalize_pages_to_refs(pages: Any) -> list[tuple[None, int, int]]:
+    """Convert pages (list of {start, end} or ints) to refs [(None, start, end), ...] with start <= end."""
+    refs: list[tuple[None, int, int]] = []
+    if not pages:
+        return refs
+    if isinstance(pages, (int, float)):
+        p = int(pages)
+        refs.append((None, p, p))
+        return refs
+    for p in pages:
+        if p is None:
+            continue
+        if isinstance(p, (int, float)):
+            n = int(p)
+            refs.append((None, n, n))
+            continue
+        if isinstance(p, dict):
+            start = p.get("start") or p.get("page")
+            end = p.get("end") or start
+            if start is None:
+                continue
+            s, e = int(start), int(end) if end is not None else int(start)
+            if e < s:
+                e = s
+            refs.append((None, s, e))
+    return refs
+
+
 def structure_index_with_llm(index_raw: str) -> list[dict[str, Any]]:
     """
-    Send raw index text to LLM and return list of {term, subentry, pages}.
+    Send raw index text to LLM and return list of {term, subentry, refs: [(None, start, end), ...]}.
     """
     prompt = INDEX_STRUCTURE_PROMPT.format(index_raw=index_raw[:50000])
     response = _call_llm(prompt)
@@ -133,11 +164,9 @@ def structure_index_with_llm(index_raw: str) -> list[dict[str, Any]]:
         term = item.get("term") or item.get("title") or ""
         subentry = item.get("subentry") or ""
         pages = item.get("pages") or item.get("page") or []
-        if isinstance(pages, int):
-            pages = [pages]
-        pages = [int(p) for p in pages if p is not None]
+        refs = _normalize_pages_to_refs(pages)
         if term:
-            out.append({"term": str(term).strip(), "subentry": str(subentry).strip(), "refs": [(None, p) for p in pages]})
+            out.append({"term": str(term).strip(), "subentry": str(subentry).strip(), "refs": refs})
     return out
 
 

@@ -170,8 +170,31 @@ def _parse_chapter_subheadings(
     return sorted(result, key=lambda x: x[0])
 
 
+def _collapse_refs_to_ranges(
+    refs: list[tuple[str, int]],
+) -> list[tuple[str, int, int]]:
+    """
+    Merge consecutive refs (same file_basename, consecutive page numbers) into ranges.
+    Returns [(file_basename, start_page, end_page), ...] with end_page >= start_page.
+    Single-page refs become (file_basename, page, page).
+    """
+    if not refs:
+        return []
+    sorted_refs = sorted(refs, key=lambda r: (r[0], r[1]))
+    out: list[tuple[str, int, int]] = []
+    current_file, current_start, current_end = sorted_refs[0][0], sorted_refs[0][1], sorted_refs[0][1]
+    for file_basename, page in sorted_refs[1:]:
+        if file_basename == current_file and page == current_end + 1:
+            current_end = page
+        else:
+            out.append((current_file, current_start, current_end))
+            current_file, current_start, current_end = file_basename, page, page
+    out.append((current_file, current_start, current_end))
+    return out
+
+
 def _parse_index_html(epub_path: str | Path, index_href: str, opf_path: str) -> list[dict[str, Any]]:
-    """Parse Index.xhtml and return list of {term, subentry, refs: [(file_basename, page_int)]}."""
+    """Parse Index.xhtml and return list of {term, subentry, refs: [(file_basename, start_page, end_page), ...]} with end_page >= start_page."""
     opf_dir = Path(opf_path).parent
     # Resolve index path relative to opf
     index_path = (opf_dir / index_href).as_posix().replace("//", "/")
@@ -243,6 +266,7 @@ def _parse_index_html(epub_path: str | Path, index_href: str, opf_path: str) -> 
         # Skip pure "see" cross-refs if no refs (optional: could keep for display)
         if not refs and ("see" in raw_text.lower() or "continued" in raw_text.lower()):
             continue
+        refs = _collapse_refs_to_ranges(refs)
         entries.append({"term": term, "subentry": subentry, "refs": refs})
     return entries
 
@@ -254,7 +278,7 @@ def extract_epub(epub_path: str | Path) -> dict[str, Any]:
         book_title: str (from docTitle in NCX or dc:title in OPF)
         toc: list of {title, href, file_basename} in nav order
         spine_hrefs: list of hrefs in reading order
-        index_entries: list of {term, subentry, refs: [(file_basename, page_int)]}
+        index_entries: list of {term, subentry, refs: [(file_basename, start_page, end_page), ...]}
         file_to_chapter: dict file_basename -> chapter title (from toc)
         subheading_by_file_and_page: dict file_basename -> [(page_int, subheading_str), ...]
     """
