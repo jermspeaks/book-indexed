@@ -122,4 +122,5 @@ book-analyzer/
 
 ## License
 
-Use and modify as you like.
+Listed in LICENSE.md, using MIT
+
