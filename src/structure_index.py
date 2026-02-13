@@ -34,6 +34,26 @@ Raw TOC text:
 """
 
 
+def _call_gemini(prompt: str, max_tokens: int = 16000) -> str:
+    """Call Gemini API and return generated text."""
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise ImportError(
+            "google-generativeai package required for Gemini. pip install google-generativeai"
+        )
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment or .env")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    generation_config = genai.types.GenerationConfig(max_output_tokens=max_tokens)
+    response = model.generate_content(prompt, generation_config=generation_config)
+    if not response.candidates:
+        return ""
+    return (response.text or "").strip()
+
+
 def _call_openai(prompt: str, max_tokens: int = 16000) -> str:
     """Call OpenAI API and return assistant content."""
     try:
@@ -50,6 +70,17 @@ def _call_openai(prompt: str, max_tokens: int = 16000) -> str:
         max_tokens=max_tokens,
     )
     return (response.choices[0].message.content or "").strip()
+
+
+def _call_llm(prompt: str, max_tokens: int = 16000) -> str:
+    """Call configured LLM (Gemini or OpenAI) and return response text."""
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return _call_gemini(prompt, max_tokens=max_tokens)
+    if os.environ.get("OPENAI_API_KEY"):
+        return _call_openai(prompt, max_tokens=max_tokens)
+    raise ValueError(
+        "Set GEMINI_API_KEY, GOOGLE_API_KEY, or OPENAI_API_KEY in .env for PDF index structuring."
+    )
 
 
 def _extract_json_from_response(text: str) -> list[dict[str, Any]]:
@@ -92,7 +123,7 @@ def structure_index_with_llm(index_raw: str) -> list[dict[str, Any]]:
     Send raw index text to LLM and return list of {term, subentry, pages}.
     """
     prompt = INDEX_STRUCTURE_PROMPT.format(index_raw=index_raw[:50000])
-    response = _call_openai(prompt)
+    response = _call_llm(prompt)
     data = _extract_json_from_response(response)
     out = []
     for item in data:
@@ -116,7 +147,7 @@ def structure_toc_with_llm(toc_raw: str, last_page: int = 500) -> list[dict[str,
     if not toc_raw.strip():
         return []
     prompt = TOC_STRUCTURE_PROMPT.format(toc_raw=toc_raw[:8000])
-    response = _call_openai(prompt, max_tokens=4000)
+    response = _call_llm(prompt, max_tokens=4000)
     data = _extract_json_from_response(response)
     out = []
     for i, item in enumerate(data):

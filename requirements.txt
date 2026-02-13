@@ -3,4 +3,5 @@ lxml>=4.9.0
 PyMuPDF>=1.23.0
 pandas>=2.0.0
 openai>=1.0.0
+google-generativeai>=0.8.0
 python-dotenv>=1.0.0
