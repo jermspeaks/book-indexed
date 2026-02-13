@@ -68,6 +68,7 @@ def run_epub(epub_path: Path, output_dir: Path) -> None:
         data["spine_hrefs"],
         data["file_to_chapter"],
         data["index_entries"],
+        data.get("subheading_by_file_and_page"),
     )
 
     out_path = export_markdown(data["book_title"], grouped, output_dir)

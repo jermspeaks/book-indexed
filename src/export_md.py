@@ -34,15 +34,29 @@ def export_markdown(
         entries = section.get("entries", [])
         lines.append(f"### {chapter_name}")
         lines.append("")
+        # Group entries by subheading (empty first, then first-appearance order)
+        subheading_order: list[str] = []
+        subheading_to_entries: dict[str, list[dict[str, Any]]] = {}
         for e in entries:
-            term = e.get("term", "")
-            subentry = e.get("subentry", "")
-            page = e.get("page", "")
-            if subentry:
-                lines.append(f"- **{term}** ({subentry}) — p. {page}")
-            else:
-                lines.append(f"- **{term}** — p. {page}")
-        lines.append("")
+            subheading = e.get("subheading") or ""
+            if subheading not in subheading_to_entries:
+                subheading_order.append(subheading)
+                subheading_to_entries[subheading] = []
+            subheading_to_entries[subheading].append(e)
+        for subheading in subheading_order:
+            group_entries = subheading_to_entries[subheading]
+            if subheading:
+                lines.append(f"#### {subheading}")
+                lines.append("")
+            for e in group_entries:
+                term = e.get("term", "")
+                subentry = e.get("subentry", "")
+                page = e.get("page", "")
+                if subentry:
+                    lines.append(f"- **{term}** ({subentry}) — p. {page}")
+                else:
+                    lines.append(f"- **{term}** — p. {page}")
+            lines.append("")
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
     return out_path

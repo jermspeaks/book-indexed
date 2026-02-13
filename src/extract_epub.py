@@ -132,6 +132,44 @@ def _find_index_href(epub_path: str | Path, opf_path: str, manifest: dict[str, s
     return None
 
 
+def _parse_chapter_subheadings(
+    epub_path: str | Path, opf_path: str, chapter_href: str
+) -> list[tuple[int, str]]:
+    """
+    Parse a chapter XHTML and return a sorted list of (page_int, subheading_str).
+    Each tuple means "at this page, this subheading applies (until the next recorded page)."
+    Subheadings are taken from <h2> and <h3>; page boundaries from elements with id="page_N".
+    """
+    opf_dir = Path(opf_path).parent
+    chapter_path = (opf_dir / chapter_href).as_posix().replace("//", "/")
+    with zipfile.ZipFile(epub_path, "r") as z:
+        try:
+            raw = z.read(chapter_path)
+        except KeyError:
+            basename = chapter_href.split("/")[-1]
+            for name in z.namelist():
+                if name.endswith(basename):
+                    raw = z.read(name)
+                    break
+            else:
+                return []
+    soup = BeautifulSoup(raw, "lxml")
+    current_subheading = ""
+    last_recorded: str | None = None
+    result: list[tuple[int, str]] = []
+    for tag in soup.find_all(True):
+        if tag.name in ("h2", "h3"):
+            current_subheading = (tag.get_text(separator=" ", strip=True) or "").strip()
+        elif tag.get("id"):
+            page_match = re.search(r"page[_\-]?(\w+)", tag.get("id", ""), re.I)
+            if page_match:
+                page_int = _normalize_page(page_match.group(1))
+                if last_recorded != current_subheading:
+                    result.append((page_int, current_subheading))
+                    last_recorded = current_subheading
+    return sorted(result, key=lambda x: x[0])
+
+
 def _parse_index_html(epub_path: str | Path, index_href: str, opf_path: str) -> list[dict[str, Any]]:
     """Parse Index.xhtml and return list of {term, subentry, refs: [(file_basename, page_int)]}."""
     opf_dir = Path(opf_path).parent
@@ -218,6 +256,7 @@ def extract_epub(epub_path: str | Path) -> dict[str, Any]:
         spine_hrefs: list of hrefs in reading order
         index_entries: list of {term, subentry, refs: [(file_basename, page_int)]}
         file_to_chapter: dict file_basename -> chapter title (from toc)
+        subheading_by_file_and_page: dict file_basename -> [(page_int, subheading_str), ...]
     """
     epub_path = Path(epub_path)
     if not epub_path.exists():
@@ -259,10 +298,21 @@ def extract_epub(epub_path: str | Path) -> dict[str, Any]:
     if index_href:
         index_entries = _parse_index_html(epub_path, index_href, opf_path)
 
+    subheading_by_file_and_page: dict[str, list[tuple[int, str]]] = {}
+    for toc_entry in toc:
+        href = toc_entry.get("href", "")
+        file_basename = toc_entry.get("file_basename") or Path(href).name
+        if not href:
+            continue
+        subheading_by_file_and_page[file_basename] = _parse_chapter_subheadings(
+            epub_path, opf_path, href
+        )
+
     return {
         "book_title": book_title,
         "toc": toc,
         "spine_hrefs": spine_hrefs,
         "index_entries": index_entries,
         "file_to_chapter": file_to_chapter,
+        "subheading_by_file_and_page": subheading_by_file_and_page,
     }
